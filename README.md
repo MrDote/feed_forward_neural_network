@@ -1,0 +1,1 @@
+# Manual implementation of a simple Feedforward Neural Network (FFNN)

@@ -11,13 +11,13 @@ from ignite.engine import Events
 
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GridSearchCV, train_test_split
 
-# TODO: cross validation, ensemble, dropout/L2, grid search
+# TODO: ensemble, dropout/L2, contour visualization
 
 device = 'cpu'
-# if torch.backends.mps.is_available():
-#     device = torch.device("mps")
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
 
 epochs = 1
 
@@ -28,23 +28,29 @@ class FeedForward(nn.Module):
     def __init__(self):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(2, 8),
+            nn.Linear(2, 4),
             nn.ReLU(inplace=True),
-            nn.Linear(8, 1),
+            nn.Linear(4, 4),
+            nn.ReLU(inplace=True),
+            nn.Linear(4, 1),
             nn.Sigmoid()
         )
 
     def forward(self, x):
         logits = self.linear_relu_stack(x)
-        logits = torch.flatten(logits)
+        # logits = torch.flatten(logits)
         return logits
 
 
 
 class SamplesDataset(Dataset):
     def __init__(self, data, labels, transform=None):
-        self.data = torch.tensor(data).type(torch.float32)
-        self.labels = torch.tensor(labels).type(torch.float32)
+        self.data = torch.tensor(data, dtype=torch.float32)
+        self.labels = torch.tensor(labels, dtype=torch.float32)
+
+        # self.data = np.array(data, dtype=np.float32)
+        # self.labels = np.array(labels, dtype=np.float32)
+
         self.transform = transform
 
     def __len__(self):
@@ -57,7 +63,7 @@ class SamplesDataset(Dataset):
 
 #################################################################
 
-from torch.optim import Adam
+import torch.optim as to
 from ignite.engine import create_supervised_trainer, create_supervised_evaluator
 from ignite.metrics import Accuracy, Loss
 
@@ -65,9 +71,9 @@ from ignite.metrics import Accuracy, Loss
 #! Data
 # X, y = make_classification(n_samples=50, n_features=2, n_redundant=0, n_informative=2, random_state=7, n_clusters_per_class=1)
 
-X, y = make_moons(n_samples=1000, noise=0.05, random_state=0)
+X, y = make_moons(n_samples=1000, noise=0.05)
 
-# X, X_test, y, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X, X_test, y, y_test = train_test_split(X, y, test_size=0.2)
 
 def plot_data(X, y):
     ax = plt.gca()
@@ -76,16 +82,61 @@ def plot_data(X, y):
 
 
 
-
 train_loader = DataLoader(SamplesDataset(X, y), 50)
+test_loader = DataLoader(SamplesDataset(X_test, y_test), 50)
 
 
 #! Instantiate model & trainer
-model = FeedForward().to(device)
-optimizer = Adam(model.parameters(), lr=0.005)
+# model = FeedForward().to(device)
+# optimizer = to.Adam(model.parameters(), lr=0.005)
 criterion = nn.BCELoss()
 
-trainer = create_supervised_trainer(model, optimizer, criterion, device)
+# trainer = create_supervised_trainer(model, optimizer, criterion, device)
+
+
+#! Grid Search (hyperparameter optimization)
+from skorch import NeuralNetClassifier
+
+#* params: ['module', 'criterion', 'optimizer', 'lr', 'max_epochs', 'batch_size', 'iterator_train', 'iterator_valid', 'dataset', 'train_split', 'callbacks', 
+#* 'predict_nonlinearity', 'warm_start', 'verbose', 'device', 'compile', '_params_to_validate', 'classes']
+
+param_grid = {
+    'batch_size': [10, 20, 40, 60, 80, 100],
+    'max_epochs': [10, 25, 50, 75, 100],
+    'lr': [0.00005, 0.0005, 0.005, 0.05, 0.5],
+    'optimizer': [to.SGD, to.RMSprop, to.Adagrad, to.Adadelta,
+                  to.Adam, to.Adamax, to.NAdam],
+    # 'criterion': [nn.MSELoss, nn.CrossEntropyLoss, nn.BCELoss, nn.BCEWithLogitsLoss, nn.KLDivLoss],
+}
+
+#* use scorch to connect torch & keras api
+model = NeuralNetClassifier(
+    module=FeedForward,
+    criterion = nn.BCELoss,
+    verbose=False
+)
+
+
+#* Best: 1.000000 using {'batch_size': 10, 'lr': 0.005, 'max_epochs': 75, 'optimizer': <class 'torch.optim.rmsprop.RMSprop'>}
+grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=-1, cv=3, error_score='raise')
+
+X = torch.tensor(X, dtype=torch.float32)
+y = torch.tensor(y, dtype=torch.float32).reshape(-1, 1)
+
+# print(X.shape)
+# print(y.shape)
+
+#* run grid search
+grid_result = grid.fit(X, y)
+
+#* summarise
+print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
+means = grid_result.cv_results_['mean_test_score']
+stds = grid_result.cv_results_['std_test_score']
+params = grid_result.cv_results_['params']
+for mean, stdev, param in zip(means, stds, params):
+    print("%f (%f) with: %r" % (mean, stdev, param))
+
 
 
 #! Evaluation
@@ -102,13 +153,14 @@ val_metrics = {
 }
 
 
-train_evaluator = create_supervised_evaluator(model, metrics=val_metrics, device=device)
+# train_evaluator = create_supervised_evaluator(model, metrics=val_metrics, device=device)
 # test_evaluator = create_supervised_evaluator(model, metrics=val_metrics, device=device)
 
 
-#* save output predictions
-eos = EpochOutputStore()
-eos.attach(train_evaluator, 'output_total')
+#* save all output predictions
+# eos = EpochOutputStore()
+# eos.attach(train_evaluator, 'total')
+# eos.attach(test_evaluator, 'total')
 
 
 # TODO: attach confusion matrix
@@ -136,30 +188,51 @@ def log_training_loss(engine):
 # trainer.add_event_handler(Events.ITERATION_COMPLETED, log_training_loss)
 
 
-total_loss = []
-acc = []
+total_train_loss = []
+total_train_acc = []
+
 #* print accuracy & average loss every epoch
 def log_training_results(trainer):
+
     train_evaluator.run(train_loader)
     metrics = train_evaluator.state.metrics
 
-    total_loss.append(metrics['loss'])
-    acc.append(metrics['accuracy'])
-    print(f"Training Results - Epoch[{trainer.state.epoch}] Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['loss']:.2f}")
+    total_train_loss.append(metrics['loss'])
+    total_train_acc.append(metrics['accuracy'])
+    # print(f"Training Results - Epoch[{trainer.state.epoch}] Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['loss']:.2f}")
 
-trainer.add_event_handler(Events.EPOCH_COMPLETED, log_training_results)
+# trainer.add_event_handler(Events.EPOCH_COMPLETED, log_training_results)
+
+
+
+total_test_loss = []
+total_test_acc = []
+
+#* same for test/evaluation (using media)
+# @trainer.on(Events.EPOCH_COMPLETED)
+def log_validation_results(trainer):
+    
+    test_evaluator.run(test_loader)
+    metrics = test_evaluator.state.metrics
+
+    total_test_loss.append(metrics['loss'])
+    total_test_acc.append(metrics['accuracy'])
+    # print(f"Validation Results - Epoch[{trainer.state.epoch}] Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['loss']:.2f}")
+
+
 
 
 #! Train the model
-# trainer.run(train_loader, max_epochs=100)
+# trainer.run(train_loader, max_epochs=50)
 
 
-# plot_data()
-# output = train_evaluator.state.output_total
+
+# output = test_evaluator.state.total
 # output = np.array([tup[0].tolist() for tup in output]).reshape(-1)
 # output = np.round(output)
 
 # plot_data(X, output)
+# plot_data(X_test, output)
 
 
 

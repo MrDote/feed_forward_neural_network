@@ -13,13 +13,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import GridSearchCV, train_test_split
 
-# TODO: ensemble, dropout/L2, contour visualization
+# TODO: ensemble, dropout/L2, contour visualization over epochs (animated)
 
 device = 'cpu'
 if torch.backends.mps.is_available():
     device = torch.device("mps")
-
-epochs = 1
 
 
 # TODO: lr_scheduler
@@ -28,28 +26,28 @@ class FeedForward(nn.Module):
     def __init__(self):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(2, 4),
+            nn.Linear(2, 5),
             nn.ReLU(inplace=True),
-            nn.Linear(4, 4),
+            nn.Linear(5, 5),
             nn.ReLU(inplace=True),
-            nn.Linear(4, 1),
+            nn.Linear(5, 1),
             nn.Sigmoid()
         )
 
     def forward(self, x):
         logits = self.linear_relu_stack(x)
-        # logits = torch.flatten(logits)
+        logits = torch.flatten(logits)
         return logits
 
 
 
 class SamplesDataset(Dataset):
     def __init__(self, data, labels, transform=None):
-        self.data = torch.tensor(data, dtype=torch.float32)
-        self.labels = torch.tensor(labels, dtype=torch.float32)
+        # self.data = torch.tensor(data, dtype=torch.float32)
+        # self.labels = torch.tensor(labels, dtype=torch.float32)
 
-        # self.data = np.array(data, dtype=np.float32)
-        # self.labels = np.array(labels, dtype=np.float32)
+        self.data = data
+        self.labels = labels
 
         self.transform = transform
 
@@ -73,7 +71,13 @@ from ignite.metrics import Accuracy, Loss
 
 X, y = make_moons(n_samples=1000, noise=0.05)
 
+X = torch.tensor(X, dtype=torch.float32, device=device)
+y = torch.tensor(y, dtype=torch.float32, device=device)
+
 X, X_test, y, y_test = train_test_split(X, y, test_size=0.2)
+
+
+
 
 def plot_data(X, y):
     ax = plt.gca()
@@ -82,16 +86,16 @@ def plot_data(X, y):
 
 
 
-train_loader = DataLoader(SamplesDataset(X, y), 50)
-test_loader = DataLoader(SamplesDataset(X_test, y_test), 50)
+train_loader = DataLoader(SamplesDataset(X, y), batch_size = 40)
+test_loader = DataLoader(SamplesDataset(X_test, y_test), batch_size = 40)
 
 
 #! Instantiate model & trainer
-# model = FeedForward().to(device)
-# optimizer = to.Adam(model.parameters(), lr=0.005)
+model = FeedForward().to(device)
+optimizer = to.Adam(model.parameters(), lr=0.002)
 criterion = nn.BCELoss()
 
-# trainer = create_supervised_trainer(model, optimizer, criterion, device)
+trainer = create_supervised_trainer(model, optimizer, criterion, device)
 
 
 #! Grid Search (hyperparameter optimization)
@@ -100,42 +104,43 @@ from skorch import NeuralNetClassifier
 #* params: ['module', 'criterion', 'optimizer', 'lr', 'max_epochs', 'batch_size', 'iterator_train', 'iterator_valid', 'dataset', 'train_split', 'callbacks', 
 #* 'predict_nonlinearity', 'warm_start', 'verbose', 'device', 'compile', '_params_to_validate', 'classes']
 
-param_grid = {
-    'batch_size': [10, 20, 40, 60, 80, 100],
-    'max_epochs': [10, 25, 50, 75, 100],
-    'lr': [0.00005, 0.0005, 0.005, 0.05, 0.5],
-    'optimizer': [to.SGD, to.RMSprop, to.Adagrad, to.Adadelta,
-                  to.Adam, to.Adamax, to.NAdam],
+# param_grid = {
+#     'batch_size': [10, 20, 40, 60, 80, 100],
+#     'max_epochs': [10, 25, 50, 75, 100],
+#     'lr': [0.00005, 0.0005, 0.005, 0.05, 0.5],
+#     'optimizer': [to.SGD, to.RMSprop, to.Adagrad, to.Adadelta,
+#                   to.Adam, to.Adamax, to.NAdam],
+#* not all criterions are suitable!
     # 'criterion': [nn.MSELoss, nn.CrossEntropyLoss, nn.BCELoss, nn.BCEWithLogitsLoss, nn.KLDivLoss],
-}
+# }
 
 #* use scorch to connect torch & keras api
-model = NeuralNetClassifier(
-    module=FeedForward,
-    criterion = nn.BCELoss,
-    verbose=False
-)
+# model = NeuralNetClassifier(
+#     module=FeedForward,
+#     criterion = nn.BCELoss,
+#     verbose=False
+# )
 
 
 #* Best: 1.000000 using {'batch_size': 10, 'lr': 0.005, 'max_epochs': 75, 'optimizer': <class 'torch.optim.rmsprop.RMSprop'>}
-grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=-1, cv=3, error_score='raise')
+# grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=-1, cv=3, error_score='raise')
 
-X = torch.tensor(X, dtype=torch.float32)
-y = torch.tensor(y, dtype=torch.float32).reshape(-1, 1)
+# X = torch.tensor(X, dtype=torch.float32)
+# y = torch.tensor(y, dtype=torch.float32).reshape(-1, 1)
 
 # print(X.shape)
 # print(y.shape)
 
 #* run grid search
-grid_result = grid.fit(X, y)
+# grid_result = grid.fit(X, y)
 
 #* summarise
-print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
-means = grid_result.cv_results_['mean_test_score']
-stds = grid_result.cv_results_['std_test_score']
-params = grid_result.cv_results_['params']
-for mean, stdev, param in zip(means, stds, params):
-    print("%f (%f) with: %r" % (mean, stdev, param))
+# print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
+# means = grid_result.cv_results_['mean_test_score']
+# stds = grid_result.cv_results_['std_test_score']
+# params = grid_result.cv_results_['params']
+# for mean, stdev, param in zip(means, stds, params):
+#     print("%f (%f) with: %r" % (mean, stdev, param))
 
 
 
@@ -153,7 +158,7 @@ val_metrics = {
 }
 
 
-# train_evaluator = create_supervised_evaluator(model, metrics=val_metrics, device=device)
+train_evaluator = create_supervised_evaluator(model, metrics=val_metrics, device=device)
 # test_evaluator = create_supervised_evaluator(model, metrics=val_metrics, device=device)
 
 
@@ -199,9 +204,9 @@ def log_training_results(trainer):
 
     total_train_loss.append(metrics['loss'])
     total_train_acc.append(metrics['accuracy'])
-    # print(f"Training Results - Epoch[{trainer.state.epoch}] Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['loss']:.2f}")
+    print(f"Training Results - Epoch[{trainer.state.epoch}] Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['loss']:.2f}")
 
-# trainer.add_event_handler(Events.EPOCH_COMPLETED, log_training_results)
+trainer.add_event_handler(Events.EPOCH_COMPLETED, log_training_results)
 
 
 
@@ -210,20 +215,20 @@ total_test_acc = []
 
 #* same for test/evaluation (using media)
 # @trainer.on(Events.EPOCH_COMPLETED)
-def log_validation_results(trainer):
+# def log_validation_results(trainer):
     
-    test_evaluator.run(test_loader)
-    metrics = test_evaluator.state.metrics
+#     test_evaluator.run(test_loader)
+#     metrics = test_evaluator.state.metrics
 
-    total_test_loss.append(metrics['loss'])
-    total_test_acc.append(metrics['accuracy'])
+#     total_test_loss.append(metrics['loss'])
+#     total_test_acc.append(metrics['accuracy'])
     # print(f"Validation Results - Epoch[{trainer.state.epoch}] Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['loss']:.2f}")
 
 
 
 
 #! Train the model
-# trainer.run(train_loader, max_epochs=50)
+# trainer.run(train_loader, max_epochs=100)
 
 
 
@@ -246,37 +251,94 @@ def plot_loss(total_loss, acc):
     ax.plot(acc, label='Accuracy')
 
     plt.ylabel('Loss/Accuracy')
-    plt.xlabel('iterations (per hundreds)')
-    plt.title('Loss reduction over time')
+    plt.xlabel('Epochs')
+    plt.title('Loss/Accuracy over epochs')
     plt.legend()
     plt.show()
 
-# plot_loss(total_loss, acc)
+
+# plot_loss(total_train_loss, total_train_acc)
 
 
-# TODO: fix contours
-# output = train_evaluator.state.output_total
-# print(output)
+# output = train_evaluator.state.total
 # output = np.array([tup[0].tolist() for tup in output]).reshape(-1)
+# print(output)
 
-# def plot_decision_boundary(X, y):
-#     fig = plt.figure(figsize=(10,6))
-#     ax = plt.gca()
-#     ax.scatter(X[:, 0], X[:, 1], c=y ,cmap='viridis', s=30, zorder=3)
-#     ax.axis('tight')
-#     ax.axis('on')
-#     xlim = ax.get_xlim()
-#     ylim = ax.get_ylim()
-#     xx, yy = np.meshgrid(np.linspace(*xlim, num=200),
-#                          np.linspace(*ylim, num=200))
-#     n_classes = len(np.unique(y))
-#     contours = ax.contourf(xx, yy, output, alpha=0.3,
-#                            levels=np.arange(n_classes + 1) - 0.5,
-#                            cmap='viridis',
-#                            zorder=1)
+# torch.save(model.state_dict(), 'trained_state.pt')
 
-#     ax.set(xlim=xlim, ylim=ylim)
+
+
+model.load_state_dict(torch.load('trained_state.pt'))
+model.eval()
+
+
+def plot_decision_boundary(X, y):
+
+    X = X.to('cpu')
+    y = y.to('cpu')
+
+    fig = plt.figure(figsize=(10,6))
+    ax = plt.gca()
+
+    #* plot points
+    ax.scatter(X[:, 0], X[:, 1], c=y ,cmap='viridis', s=30, zorder=3)
+    ax.axis('tight')
+    ax.axis('on')
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+
+    #* make predictions for each point of the grid
+    xx, yy = np.meshgrid(np.linspace(*xlim, num=200), np.linspace(*ylim, num=200))
+    r1, r2 = xx.flatten(), yy.flatten()
+    r1, r2 = r1.reshape((len(r1), 1)), r2.reshape((len(r2), 1))
+    grid = np.hstack((r1,r2))
+    model.to('cpu')
+    preds = model(torch.tensor(grid, dtype=torch.float32))
+    preds = preds.detach().reshape((200, -1))
+
+    n_classes = len(np.unique(y))
+
+    #* plot decision boundaries
+    contours = ax.contourf(xx, yy, preds, alpha=0.3,
+                           levels=np.arange(n_classes + 1) - 0.5,
+                           cmap='viridis',
+                           zorder=1)
+
+    ax.set(xlim=xlim, ylim=ylim)
+    plt.show()
+
+# plot_decision_boundary(X_test, y_test)
+
+
+
+
+
+#* animate decision boundary evolution over epochs
+import matplotlib.animation as ani
+
+
+# fig = plt.figure()
+
+
+#* set up the limits etc
+# def initial():
+
+#     return scatter
+
+
+# def render(i):
+
+    # freq, bins = np.histogram(simulation.getSpeeds(), bins=vs)
+
+    # simulation.advance()
+
+    # posX, posY = simulation.getPositions()
+    # scatter.set_offsets(np.c_[posX,posY])
+    # scatter.set_color(simulation.getColor())
+    # return scatter
+
+
+# def run_anim():
+
+#     anim = ani.FuncAnimation(fig, render, init_func=initial, interval=1000, frames=range(120), blit = True, repeat = True)
 #     plt.show()
-
-
-# plot_decision_boundary(X, y)

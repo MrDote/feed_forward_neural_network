@@ -1,5 +1,6 @@
 from matplotlib.pyplot import plot_date
 from sklearn.datasets import make_classification, make_moons
+import matplotlib.animation as ani
 
 import torch
 from torch import nn
@@ -8,6 +9,7 @@ from ignite.contrib.handlers import TensorboardLogger
 from ignite.handlers.stores import EpochOutputStore
 from ignite.metrics.confusion_matrix import ConfusionMatrix
 from ignite.engine import Events
+from skorch import NeuralNetClassifier
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,21 +22,26 @@ if torch.backends.mps.is_available():
     device = torch.device("mps")
 
 
+epochs = 100
+
 # TODO: lr_scheduler
 
 class FeedForward(nn.Module):
     def __init__(self):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(2, 5),
+            nn.Linear(2, 6),
             nn.ReLU(inplace=True),
-            nn.Linear(5, 5),
+            nn.Linear(6, 6),
             nn.ReLU(inplace=True),
-            nn.Linear(5, 1),
+            nn.Linear(6, 1),
             nn.Sigmoid()
         )
 
     def forward(self, x):
+        if x is not torch.float32:
+            x = x.clone().detach().requires_grad_(True).to(dtype=torch.float32)
+
         logits = self.linear_relu_stack(x)
         logits = torch.flatten(logits)
         return logits
@@ -86,8 +93,8 @@ def plot_data(X, y):
 
 
 
-train_loader = DataLoader(SamplesDataset(X, y), batch_size = 40)
-test_loader = DataLoader(SamplesDataset(X_test, y_test), batch_size = 40)
+train_loader = DataLoader(SamplesDataset(X, y), batch_size = 50)
+# test_loader = DataLoader(SamplesDataset(X_test, y_test), batch_size = 50)
 
 
 #! Instantiate model & trainer
@@ -99,8 +106,6 @@ trainer = create_supervised_trainer(model, optimizer, criterion, device)
 
 
 #! Grid Search (hyperparameter optimization)
-from skorch import NeuralNetClassifier
-
 #* params: ['module', 'criterion', 'optimizer', 'lr', 'max_epochs', 'batch_size', 'iterator_train', 'iterator_valid', 'dataset', 'train_split', 'callbacks', 
 #* 'predict_nonlinearity', 'warm_start', 'verbose', 'device', 'compile', '_params_to_validate', 'classes']
 
@@ -193,8 +198,10 @@ def log_training_loss(engine):
 # trainer.add_event_handler(Events.ITERATION_COMPLETED, log_training_loss)
 
 
+#* store losses & accuracy for each epoch
 total_train_loss = []
 total_train_acc = []
+
 
 #* print accuracy & average loss every epoch
 def log_training_results(trainer):
@@ -204,7 +211,7 @@ def log_training_results(trainer):
 
     total_train_loss.append(metrics['loss'])
     total_train_acc.append(metrics['accuracy'])
-    print(f"Training Results - Epoch[{trainer.state.epoch}] Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['loss']:.2f}")
+    # print(f"Training Results - Epoch[{trainer.state.epoch}] Avg accuracy: {metrics['accuracy']:.2f} Avg loss: {metrics['loss']:.2f}")
 
 trainer.add_event_handler(Events.EPOCH_COMPLETED, log_training_results)
 
@@ -226,119 +233,145 @@ total_test_acc = []
 
 
 
+#! animate decision boundary evolution over epochs
+grid_num = 200
+
+
+
+def plot_points(X, y):
+    fig1, ax1 = plt.subplots(figsize=(10,6))
+
+    #* plot points (since don't change)
+    X = X.to('cpu')
+    y = y.to('cpu')
+    scatter = ax1.scatter(X[:, 0], X[:, 1], c=y ,cmap='viridis', s=30, zorder=3)
+    ax1.axis('tight')
+    ax1.axis('on')
+
+    xlim = ax1.get_xlim()
+    ylim = ax1.get_ylim()
+
+    ax1.set(xlim=xlim, ylim=ylim)
+
+    return xlim, ylim, fig1, ax1
+
+xlim, ylim, fig1, ax1 = plot_points(X, y)
+
+
+
+def create_grid(xlim, ylim):
+    xx, yy = np.meshgrid(np.linspace(*xlim, num=grid_num), np.linspace(*ylim, num=grid_num))
+    r1, r2 = xx.flatten(), yy.flatten()
+    r1, r2 = r1.reshape((len(r1), 1)), r2.reshape((len(r2), 1))
+    grid = torch.tensor(np.hstack((r1,r2)), dtype=torch.float32)
+
+    return xx, yy, grid
+
+xx, yy, grid = create_grid(xlim, ylim)
+
+
+
+
+
+#* save grid predictions for every epoch
+grid_preds = np.empty((epochs, grid_num, grid_num))
+
+def predict_grid(trainer):
+    model.eval()
+    model.to('cpu')
+
+    preds = model(grid).detach().numpy()
+    preds = preds.reshape((grid_num, grid_num))
+
+    grid_preds[trainer.state.epoch-1] = preds
+
+    model.to(device)
+    model.train()
+
+
+trainer.add_event_handler(Events.EPOCH_COMPLETED, predict_grid)
+
 
 #! Train the model
-# trainer.run(train_loader, max_epochs=100)
+# trainer.run(train_loader, max_epochs=epochs)
 
 
+#! Save data
+file = 'info/'
 
-# output = test_evaluator.state.total
-# output = np.array([tup[0].tolist() for tup in output]).reshape(-1)
-# output = np.round(output)
-
-# plot_data(X, output)
-# plot_data(X_test, output)
-
-
-
-
-#! Plotting
-#* plot loss evolution
-def plot_loss(total_loss, acc):
-
-    ax = plt.gca()
-    ax.plot(total_loss, label='Loss')
-    ax.plot(acc, label='Accuracy')
-
-    plt.ylabel('Loss/Accuracy')
-    plt.xlabel('Epochs')
-    plt.title('Loss/Accuracy over epochs')
-    plt.legend()
-    plt.show()
-
-
-# plot_loss(total_train_loss, total_train_acc)
-
-
-# output = train_evaluator.state.total
-# output = np.array([tup[0].tolist() for tup in output]).reshape(-1)
-# print(output)
+# np.save(file + 'grid_preds', grid_preds)
+# np.save(file + 'losses', total_train_loss)
+# np.save(file + 'acc', total_train_acc)
 
 # torch.save(model.state_dict(), 'trained_state.pt')
 
 
 
-model.load_state_dict(torch.load('trained_state.pt'))
-model.eval()
+grid_preds = np.load(file + 'grid_preds.npy')
+# model.load_state_dict(torch.load('trained_state.pt'))
+# model.eval()
 
 
-def plot_decision_boundary(X, y):
 
-    X = X.to('cpu')
-    y = y.to('cpu')
 
-    fig = plt.figure(figsize=(10,6))
-    ax = plt.gca()
+#! Plotting
 
-    #* plot points
-    ax.scatter(X[:, 0], X[:, 1], c=y ,cmap='viridis', s=30, zorder=3)
-    ax.axis('tight')
-    ax.axis('on')
-    xlim = ax.get_xlim()
-    ylim = ax.get_ylim()
+#* plot data points with colour-coded predictions
+def plot_data_preds():
+    output = train_evaluator.state.total
+    output = np.array([tup[0].tolist() for tup in output]).reshape(-1)
+    output = np.round(output)
+
+    plot_data(X_test, output)
+
+
+
+
+#* plot loss evolution
+def plot_loss():
+    loss = np.load(file + 'losses.npy')
+    acc = np.load(file + 'acc.npy')
+
+    fig2, ax2 = plt.subplots()
+    ax2.plot(loss, label='Loss')
+    ax2.plot(acc, label='Accuracy')
+
+    plt.ylabel('Loss/Accuracy')
+    plt.xlabel('Epochs')
+    plt.title('Loss/Accuracy over epochs')
+    plt.legend()
+
+# plot_loss()
+
+
+
+def plot_decision_boundary(grid_preds):
 
     #* make predictions for each point of the grid
-    xx, yy = np.meshgrid(np.linspace(*xlim, num=200), np.linspace(*ylim, num=200))
-    r1, r2 = xx.flatten(), yy.flatten()
-    r1, r2 = r1.reshape((len(r1), 1)), r2.reshape((len(r2), 1))
-    grid = np.hstack((r1,r2))
-    model.to('cpu')
-    preds = model(torch.tensor(grid, dtype=torch.float32))
-    preds = preds.detach().reshape((200, -1))
-
-    n_classes = len(np.unique(y))
 
     #* plot decision boundaries
-    contours = ax.contourf(xx, yy, preds, alpha=0.3,
-                           levels=np.arange(n_classes + 1) - 0.5,
+    contours = ax1.contourf(xx, yy, grid_preds, alpha=0.3,
+                           levels=np.arange(2 + 1) - 0.5,
                            cmap='viridis',
                            zorder=1)
 
-    ax.set(xlim=xlim, ylim=ylim)
-    plt.show()
-
-# plot_decision_boundary(X_test, y_test)
+# plot_decision_boundary(grid_preds[-1])
 
 
 
 
-
-#* animate decision boundary evolution over epochs
-import matplotlib.animation as ani
-
-
-# fig = plt.figure()
-
-
-#* set up the limits etc
-# def initial():
-
-#     return scatter
+#* get grid predictions for each epoch at a time
+def render(i):
+    ax = plt.gca()
+    contours = ax.contourf(xx, yy, grid_preds[i], alpha=0.3,
+                           levels=np.arange(2 + 1) - 0.5,
+                           cmap='viridis',
+                           zorder=1)
+    
+    # return fig1, contours
 
 
-# def render(i):
-
-    # freq, bins = np.histogram(simulation.getSpeeds(), bins=vs)
-
-    # simulation.advance()
-
-    # posX, posY = simulation.getPositions()
-    # scatter.set_offsets(np.c_[posX,posY])
-    # scatter.set_color(simulation.getColor())
-    # return scatter
+anim = ani.FuncAnimation(fig1, render, frames=range(epochs), interval=50, repeat=True)
 
 
-# def run_anim():
-
-#     anim = ani.FuncAnimation(fig, render, init_func=initial, interval=1000, frames=range(120), blit = True, repeat = True)
-#     plt.show()
+plt.show()

@@ -1,0 +1,3 @@
+# Feedforward Neural Network (FFNN)
+
+This project contains a manual implementation of an FFNN (FFNN_manual.py) as well as its implementation using pytorch (FFNN_torch.py). In addition, the latter features grid search for hyperparameter optimization and the animation of the evolution of the decision boundary in a 2D dataset over training epochs. The two test files are there to play around with the two mentioned functionalities separately to get a feel for them. When running the torch network, the losses and accuracy are saved to the '/info' directory for plotting graphs etc.

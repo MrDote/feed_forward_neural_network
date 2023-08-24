@@ -1,5 +1,5 @@
 from matplotlib.pyplot import plot_date
-from sklearn.datasets import make_classification, make_moons
+from sklearn.datasets import make_circles, make_classification, make_moons
 import matplotlib.animation as ani
 
 import torch
@@ -15,7 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import GridSearchCV, train_test_split
 
-# TODO: ensemble, dropout/L2, contour visualization over epochs (animated)
+# TODO: ensemble, dropout/L2 regularization
 
 device = 'cpu'
 if torch.backends.mps.is_available():
@@ -76,7 +76,10 @@ from ignite.metrics import Accuracy, Loss
 #! Data
 # X, y = make_classification(n_samples=50, n_features=2, n_redundant=0, n_informative=2, random_state=7, n_clusters_per_class=1)
 
-X, y = make_moons(n_samples=1000, noise=0.05)
+# X, y = make_moons(n_samples=1000, noise=0.05)
+
+X, y = make_circles(n_samples=1000, noise=0.05, factor=0.3)
+
 
 X = torch.tensor(X, dtype=torch.float32, device=device)
 y = torch.tensor(y, dtype=torch.float32, device=device)
@@ -85,16 +88,22 @@ X, X_test, y, y_test = train_test_split(X, y, test_size=0.2)
 
 
 
-
 def plot_data(X, y):
+    X = X.to('cpu')
+    y = y.to('cpu')
     ax = plt.gca()
     ax.scatter(X[:, 0], X[:, 1], c=y)    
     plt.show()
+
+# plot_data(X, y)
 
 
 
 train_loader = DataLoader(SamplesDataset(X, y), batch_size = 50)
 # test_loader = DataLoader(SamplesDataset(X_test, y_test), batch_size = 50)
+
+
+
 
 
 #! Instantiate model & trainer
@@ -103,6 +112,9 @@ optimizer = to.Adam(model.parameters(), lr=0.002)
 criterion = nn.BCELoss()
 
 trainer = create_supervised_trainer(model, optimizer, criterion, device)
+
+
+
 
 
 #! Grid Search (hyperparameter optimization)
@@ -146,6 +158,9 @@ trainer = create_supervised_trainer(model, optimizer, criterion, device)
 # params = grid_result.cv_results_['params']
 # for mean, stdev, param in zip(means, stds, params):
 #     print("%f (%f) with: %r" % (mean, stdev, param))
+
+
+
 
 
 
@@ -293,7 +308,7 @@ trainer.add_event_handler(Events.EPOCH_COMPLETED, predict_grid)
 
 
 #! Train the model
-# trainer.run(train_loader, max_epochs=epochs)
+trainer.run(train_loader, max_epochs=epochs)
 
 
 #! Save data
@@ -307,7 +322,7 @@ file = 'info/'
 
 
 
-grid_preds = np.load(file + 'grid_preds.npy')
+# grid_preds = np.load(file + 'grid_preds.npy')
 # model.load_state_dict(torch.load('trained_state.pt'))
 # model.eval()
 
@@ -355,7 +370,7 @@ def plot_decision_boundary(grid_preds):
                            cmap='viridis',
                            zorder=1)
 
-# plot_decision_boundary(grid_preds[-1])
+plot_decision_boundary(grid_preds[-1])
 
 
 
@@ -371,7 +386,7 @@ def render(i):
     # return fig1, contours
 
 
-anim = ani.FuncAnimation(fig1, render, frames=range(epochs), interval=50, repeat=True)
+# anim = ani.FuncAnimation(fig1, render, frames=range(epochs), interval=50, repeat=True)
 
 
 plt.show()

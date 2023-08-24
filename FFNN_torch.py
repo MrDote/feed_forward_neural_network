@@ -15,7 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import GridSearchCV, train_test_split
 
-# TODO: ensemble, dropout/L2 regularization
+# TODO: ensemble, dropout/L2 regularization, lr_scheduler
 
 device = 'cpu'
 if torch.backends.mps.is_available():
@@ -23,8 +23,6 @@ if torch.backends.mps.is_available():
 
 
 epochs = 100
-
-# TODO: lr_scheduler
 
 class FeedForward(nn.Module):
     def __init__(self):
@@ -81,21 +79,21 @@ from ignite.metrics import Accuracy, Loss
 X, y = make_circles(n_samples=1000, noise=0.05, factor=0.3)
 
 
-X = torch.tensor(X, dtype=torch.float32, device=device)
-y = torch.tensor(y, dtype=torch.float32, device=device)
-
-X, X_test, y, y_test = train_test_split(X, y, test_size=0.2)
-
-
 
 def plot_data(X, y):
-    X = X.to('cpu')
-    y = y.to('cpu')
     ax = plt.gca()
     ax.scatter(X[:, 0], X[:, 1], c=y)    
     plt.show()
 
 # plot_data(X, y)
+
+
+
+X = torch.tensor(X, dtype=torch.float32, device=device)
+y = torch.tensor(y, dtype=torch.float32, device=device)
+
+X, X_test, y, y_test = train_test_split(X, y, test_size=0.2)
+
 
 
 

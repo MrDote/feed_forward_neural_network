@@ -5,17 +5,19 @@ from sklearn.metrics import accuracy_score
 
 import numpy as np
 from sklearn.datasets import make_classification, make_multilabel_classification
+from sklearn.preprocessing import OneHotEncoder
 from matplotlib import pyplot as plt
 
 
 
+# TODO: 3D plot to visualise informative features
 
 
 class FeedForward(nn.Module):
     def __init__(self):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(2, 8),
+            nn.Linear(4, 8),
             nn.ReLU(inplace=True),
             nn.Linear(8, 4),
             nn.ReLU(inplace=True),
@@ -23,7 +25,6 @@ class FeedForward(nn.Module):
             nn.Softmax(dim=1)
         )
 
-        self.logs = []
 
     def forward(self, x):
         if x is not torch.float32:
@@ -49,7 +50,7 @@ model = NeuralNetClassifier(
 
 #* For make_multilabel_classification each sample could have associations with more than one class
 
-X, y = make_classification(100, n_features=2, n_classes=3, n_redundant=0, n_clusters_per_class=1, random_state=1)
+X, y = make_classification(100, n_features=4, n_informative=3, n_redundant=1, n_classes=3, n_clusters_per_class=2, random_state=1)
 
 # print(y)
 
@@ -58,20 +59,28 @@ def plot_data(X, y):
     ax.scatter(X[:, 0], X[:, 1], c=y)    
     plt.show()
 
-# plot_data(X, y)
+plot_data(X, y)
 
 
 
 X = torch.tensor(X, dtype=torch.float32)
 y = torch.tensor(y, dtype=torch.int64)
+# print(y)
+
+y_enc = y.reshape(-1, 1)
+enc = OneHotEncoder(handle_unknown='ignore')
+y_enc = torch.tensor(enc.fit_transform(y_enc).toarray(), dtype=torch.float32)
+# print(y)
 
 
+model.fit(X, y_enc)
 
-model.fit(X, y)
+preds = model.predict(X)
 
-# preds = model.predict(X)
+# print(y)
+# print(preds)
 
-
+print(accuracy_score(y, preds))
 
 
 
@@ -133,12 +142,12 @@ def plot_decision_boundary(grid_preds):
 
 
 
-xlim, ylim, fig1, ax1 = plot_points(X, y)
+# xlim, ylim, fig1, ax1 = plot_points(X, y)
 
-xx, yy, grid = create_grid(xlim, ylim)
+# xx, yy, grid = create_grid(xlim, ylim)
 
-grid_preds = predict_grid(grid)
+# grid_preds = predict_grid(grid)
 
-plot_decision_boundary(grid_preds)
+# plot_decision_boundary(grid_preds)
 
-plt.show()
+# plt.show()
